@@ -573,9 +573,10 @@ impl Generator {
         let mut file =
             file_cache::FileWriteCache::new(dst.as_ref(), &mut file_cache::NoNeedFsOpsRegistration);
 
-        for item in items {
-            write!(&mut file, "{}", DisplayToTokens(&item)).expect(WRITE_TO_MEM_FAILED_MSG);
-        }
+        // types map
+        // for item in items {
+        //     write!(&mut file, "{}", DisplayToTokens(&item)).expect(WRITE_TO_MEM_FAILED_MSG);
+        // }
 
         let mut items_to_expand = Vec::with_capacity(1000);
 

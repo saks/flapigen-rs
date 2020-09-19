@@ -583,7 +583,7 @@ fn generate_rust_code(
                     }
                 }
             };
-            ctx.rust_code.push(fclass_impl_code);
+            // ctx.rust_code.push(fclass_impl_code);
             (this_type_for_method, code_box_this)
         } else {
             (dummy_rust_ty.clone(), TokenStream::new())
@@ -604,17 +604,17 @@ May be you need to use `private constructor = empty;` syntax?",
     let mut have_constructor = false;
 
     for (method, f_method) in class.methods.iter().zip(f_methods_sign.iter()) {
-        let java_method_name = method_name(method, f_method);
-        let method_overloading = gen_fnames[&java_method_name] > 1;
-        let jni_func_name = rust_code::generate_jni_func_name(
-            ctx,
-            &class.name.to_string(),
-            (class.src_id, class.span()),
-            &java_method_name,
-            method.variant,
-            f_method,
-            method_overloading,
-        )?;
+        // let java_method_name = method_name(method, f_method);
+        // let method_overloading = gen_fnames[&java_method_name] > 1;
+        let jni_func_name = format!("{}_{}", &class.name.to_string(), method.short_name());
+        //     ctx,
+        //     &class.name.to_string(),
+        //     (class.src_id, class.span()),
+        //     &java_method_name,
+        //     method.variant,
+        //     f_method,
+        //     method_overloading,
+        // )?;
         trace!("generate_rust_code jni name: {}", jni_func_name);
 
         let mut known_names: FxHashSet<SmolStr> =
@@ -695,51 +695,17 @@ May be you need to use `private constructor = empty;` syntax?",
     }
 
     if have_constructor {
-        let this_type: RustType = ctx.conv_map.find_or_alloc_rust_type(
-            &calc_this_type_for_method(ctx.conv_map, class).ok_or_else(&no_this_info)?,
-            class.src_id,
-        );
-        let jlong_type = ctx.conv_map.ty_to_rust_type(&parse_type! { jlong });
-
-        let unpack_code = unpack_from_heap_pointer(&this_type, "this", false);
-
-        let jni_destructor_name = rust_code::generate_jni_func_name(
-            ctx,
-            &class.name.to_string(),
-            (class.src_id, class.span()),
-            "do_delete",
-            MethodVariant::StaticMethod,
-            &JniForeignMethodSignature {
-                output: ForeignTypeInfo {
-                    name: "".into(),
-                    correspoding_rust_type: dummy_rust_ty,
-                }
-                .into(),
-                input: vec![JavaForeignTypeInfo {
-                    base: ForeignTypeInfo {
-                        name: "long".into(),
-                        correspoding_rust_type: jlong_type,
-                    },
-                    java_converter: None,
-                    annotation: None,
-                }],
-            },
-            false,
-        )?;
+        let class_name = &class.name.to_string();
+        let jni_destructor_name = format!("{}_deinit", class_name);
         let code = format!(
             r#"
 #[allow(unused_variables, unused_mut, non_snake_case, unused_unsafe)]
 #[no_mangle]
-pub extern "C" fn {jni_destructor_name}(env: *mut JNIEnv, _: jclass, this: jlong) {{
-    let this: *mut {this_type} = unsafe {{
-        jlong_to_pointer::<{this_type}>(this).as_mut().unwrap()
-    }};
-{unpack_code}
-    drop(this);
+pub unsafe extern fn {jni_destructor_name}(data: *mut {this_type}) {{
+    let _ = Box::from_raw(data);
 }}
 "#,
             jni_destructor_name = jni_destructor_name,
-            unpack_code = unpack_code,
             this_type = this_type_for_method,
         );
         debug!("we generate and parse code: {}", code);
@@ -857,7 +823,7 @@ fn generate_static_method(ctx: &mut JavaContext, mc: &MethodContext) -> Result<(
         r#"
 #[allow(non_snake_case, unused_variables, unused_mut, unused_unsafe)]
 #[no_mangle]
-pub extern "C" fn {func_name}(env: *mut JNIEnv, _: jclass, {decl_func_args}) -> {jni_ret_type} {{
+pub extern "C" fn {func_name}({decl_func_args}) -> {jni_ret_type} {{
 {convert_input_code}
     let mut {ret_name}: {real_output_typename} = {call};
 {convert_output_code}
@@ -922,7 +888,7 @@ fn generate_constructor(
         r#"
 #[allow(unused_variables, unused_mut, non_snake_case, unused_unsafe)]
 #[no_mangle]
-pub extern "C" fn {func_name}(env: *mut JNIEnv, _: jclass, {decl_func_args}) -> jlong {{
+pub extern "C" fn {func_name}({decl_func_args}) -> jlong {{
 {convert_input_code}
     let this: {real_output_typename} = {call};
 {convert_this}
@@ -1007,11 +973,8 @@ fn generate_method(
 #[allow(non_snake_case, unused_variables, unused_mut, unused_unsafe)]
 #[no_mangle]
 pub extern "C"
- fn {func_name}(env: *mut JNIEnv, _: jclass, this: jlong, {decl_func_args}) -> {jni_ret_type} {{
+ fn {func_name}({decl_func_args}) -> {jni_ret_type} {{
 {convert_input_code}
-    let this: {this_type_ref} = unsafe {{
-        jlong_to_pointer::<{this_type}>(this).as_mut().unwrap()
-    }};
 {convert_this}
     let mut {ret_name}: {real_output_typename} = {call};
 {convert_output_code}
@@ -1022,8 +985,6 @@ pub extern "C"
         decl_func_args = mc.decl_func_args,
         convert_input_code = convert_input_code,
         jni_ret_type = jni_ret_type,
-        this_type_ref = this_type_ref,
-        this_type = this_type_for_method,
         convert_this = convert_this,
         convert_output_code = convert_output_code,
         real_output_typename = mc.real_output_typename,
